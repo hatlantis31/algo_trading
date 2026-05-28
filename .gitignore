@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.env
+.venv/
+venv/
+*.log
+*.csv
+*.parquet
+*.h5
+.ipynb_checkpoints/
+config/secrets.py
+config/ibkr_credentials.py
