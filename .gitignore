@@ -13,3 +13,7 @@ venv/
 .ipynb_checkpoints/
 config/secrets.py
 config/ibkr_credentials.py
+data/*.parquet
+data/*.csv
+data/*.h5
+!data/.gitkeep
