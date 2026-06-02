@@ -5,6 +5,22 @@ Sits between signal generation and order execution. Call check_weights()
 on every rebalance date; the portfolio engine calls check_halt() on every
 bar to decide whether trading is suspended.
 
+IMPORTANT — stop-losses for factor strategies
+---------------------------------------------
+Research Affiliates (2025) "Stop the Losses" tested every stop-loss threshold
+on factor portfolios and found **none improved Sharpe or returns net of costs**.
+The reason: factor positions enter when a stock is statistically cheap; a stop-loss
+forces exit exactly when it is cheapest (and most likely to mean-revert). Tight
+stops (5%) destroyed Sharpe by multiplying turnover. DO NOT add position-level
+stop-losses to factor strategies.
+
+The CORRECT controls for factor portfolios are portfolio-level:
+  ✓ Drawdown circuit breaker (halt at -15% from peak)
+  ✓ Daily loss limit (halt if single day > -3%)
+  ✓ Position weight cap (prevent concentration)
+  ✓ VaR / CVaR monitoring (scale down on tail-risk breach)
+  ✓ Beta management (stay near target market exposure)
+
 Controls implemented
 --------------------
 1. Position cap           — no single position > max_position_wt
