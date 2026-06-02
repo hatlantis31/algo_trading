@@ -74,10 +74,10 @@ class BacktestEngine:
         # Strategy gross return
         strat_return = position * daily_return
 
-        # Apply round-trip costs on position changes
-        trade_flag = position.diff().abs().clip(upper=1)
+        # Apply round-trip costs on position changes (first bar's diff is NaN → 0)
+        trade_flag = position.diff().abs().clip(upper=1).fillna(0.0)
         cost = trade_flag * (self.commission + self.slippage)
-        net_return = strat_return - cost
+        net_return = (strat_return - cost).fillna(0.0)
 
         equity = self.initial_capital * (1 + net_return).cumprod()
         metrics = compute_metrics(net_return)

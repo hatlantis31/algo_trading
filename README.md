@@ -7,18 +7,59 @@ A self-contained Python workspace for strategy research, backtesting, and live t
 ```
 algo_trading/
 ├── config/              # IBKR connection settings, global parameters
-├── core/                # IBKR connection wrapper, data fetcher
-├── strategies/          # Strategy library (base class + 5 strategies)
-├── backtesting/         # Vectorised backtest engine + performance metrics
+├── core/                # IBKR connection, data fetcher, regime detector, S&P500 loader
+├── strategies/          # Single-asset strategies + cross-sectional factor strategies
+├── backtesting/         # Backtest engines, metrics, param tuner, evaluation suite
 ├── strategy_matrix/     # StrategyMatrix: score all strategies × all tickers
+├── data/                # Local data cache (gitignored — never committed)
 ├── notebooks/           # Jupyter notebooks (numbered workflow)
 │   ├── 01_ibkr_connection_test.ipynb
 │   ├── 02_data_exploration.ipynb
 │   ├── 03_strategy_overview.ipynb
 │   ├── 04_backtest_runner.ipynb
-│   └── 05_strategy_matrix.ipynb
-└── tests/               # pytest unit tests
+│   ├── 05_strategy_matrix.ipynb
+│   ├── 06_regime_and_tuning.ipynb       # regime filter + grid search
+│   └── 07_sota_comparison.ipynb         # naive vs professional quant (real data)
+└── tests/               # pytest unit tests (39 tests)
 ```
+
+## Two tiers of strategy
+
+**Tier 1 — single-asset (time-series).** Each strategy decides buy/sell on one ticker
+from its own price history. Simple, but on real data they *lose to buy-and-hold* (they
+short in bull markets and sit in cash). Use `BacktestEngine`.
+
+**Tier 2 — cross-sectional (portfolio).** Rank the whole universe each rebalance and hold
+a diversified book of the best names. This is how professional equity quant works. Use
+`PortfolioEngine` with strategies from `strategies/cross_sectional.py`:
+`CrossSectionalMomentum`, `ShortTermReversal`, `LowVolatility`, `MultiFactor`.
+
+Supports inverse-vol position sizing and volatility targeting:
+```python
+from backtesting import PortfolioEngine
+from strategies.cross_sectional import MultiFactor
+eng = PortfolioEngine(rebalance="ME", cost_bps=10, inverse_vol=True, vol_target=0.12)
+result = eng.run(price_panel, MultiFactor(long_short=False).weights)
+```
+
+## Professional evaluation suite (`backtesting/evaluation.py`)
+
+A single Sharpe number lies. These tools tell you if an edge is real:
+- `information_coefficient` — does the signal actually rank stocks? (0.02–0.05 = good)
+- `deflated_sharpe_ratio` — Sharpe adjusted for how many variants you tried (López de Prado)
+- `probabilistic_sharpe_ratio`, `t_stat_of_returns`, `drawdown_duration`
+- `full_evaluation(result, n_trials=N)` — bundles everything
+
+## Real data without a broker
+
+`core/sp500_loader.py` bundles a real 5-year daily dataset (505 S&P 500 stocks):
+```python
+from core.sp500_loader import download_sp500, get_panel, liquid_universe
+download_sp500()                       # one-time ~29 MB into data/ (gitignored)
+panel = get_panel(liquid_universe(100))  # wide close-price panel for cross-sectional work
+```
+> Note: this dataset is **survivorship-biased** and covers only a bull market (2013–2018).
+> Treat results as illustrative, not a validated edge.
 
 ## Quick Start
 
