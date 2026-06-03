@@ -23,6 +23,41 @@ algo_trading/
 └── tests/               # pytest unit tests (39 tests)
 ```
 
+## Tier 3 — hedge-fund-grade market-neutral (the full pipeline)
+
+`strategies/hedge_fund_strategy.py` runs the complete institutional pipeline used
+by a systematic equity market-neutral fund:
+
+```
+price/volume → alpha factors → combine (IC-weight / ML) → neutralize (β, sector)
+             → risk model (Ledoit-Wolf cov + betas) → MV optimizer
+             → dollar- & beta-neutral, position-capped book
+             → vol targeting + circuit breakers → CPCV + Deflated Sharpe
+```
+
+Components:
+- `strategies/alpha_factors.py` — 10 cross-sectional signals (momentum, reversal,
+  vol, liquidity, volume) + cross-sectional standardize/winsorize/neutralize + IC-weighting
+- `strategies/ml_alpha.py` — HistGradientBoosting cross-sectional ranker (Gu-Kelly-Xiu)
+  with strict purged training (no look-ahead)
+- `backtesting/risk_model.py` — Ledoit-Wolf shrinkage covariance + per-stock betas
+- `backtesting/optimizer.py` — analytic dollar/beta-neutral mean-variance with
+  robustness shrinkage (DeMiguel 2009) and hard position caps
+- `backtesting/cpcv.py` — Combinatorial Purged Cross-Validation (López de Prado)
+
+```python
+from strategies.hedge_fund_strategy import HedgeFundStrategy
+from backtesting import PortfolioEngine
+hf = HedgeFundStrategy(volume_panel=vol, alpha_combination="equal", construction="decile")
+result = PortfolioEngine("ME", cost_bps=10).run(close_panel, hf.weights)
+```
+
+> **Honest result** on the bundled S&P data (notebook 09): ~0.3 Sharpe net,
+> beta ≈ 0, −7% max DD — a real but modest market-independent edge from price/volume
+> alone. The ML ranker and raw mean-variance did NOT beat the simple robust
+> construction (over-engineering hurt). Real funds need fundamental data, a larger
+> universe, and multi-regime history to push higher.
+
 ## Two tiers of strategy
 
 **Tier 1 — single-asset (time-series).** Each strategy decides buy/sell on one ticker
