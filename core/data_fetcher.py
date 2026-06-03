@@ -68,7 +68,11 @@ def fetch_yfinance(
         raise ValueError(f"yfinance returned no data for {ticker!r}")
 
     df = raw.copy()
-    df.columns = [c.lower() for c in df.columns]
+    # Newer yfinance returns MultiIndex columns like ('Close', 'CRH.L').
+    # Flatten to just the OHLCV field name (the first level).
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    df.columns = [str(c).lower() for c in df.columns]
     df.index.name = "date"
     df = df[["open", "high", "low", "close", "volume"]].dropna()
     _save_cache(df, cache)
