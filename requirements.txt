@@ -10,6 +10,7 @@ notebook>=7.0
 ipywidgets>=8.0
 yfinance>=0.2          # fallback / historical data for backtesting without live IBKR
 pytz>=2023.3
+pyarrow>=12.0          # fast on-disk cache (parquet); CSV fallback used if absent
 ta>=0.11               # technical analysis indicators
 plotly>=5.15
 backtrader>=1.9.78     # optional standalone backtest engine

@@ -34,16 +34,28 @@ def _cache_path(ticker: str, period: str, interval: str) -> Path:
 
 
 def _load_cache(path: Path) -> pd.DataFrame | None:
+    # Prefer Parquet, but fall back to a CSV sibling if that's what we wrote.
     if path.exists():
         logger.info("Loading from cache: %s", path.name)
         return pd.read_parquet(path)
+    csv_path = path.with_suffix(".csv")
+    if csv_path.exists():
+        logger.info("Loading from cache: %s", csv_path.name)
+        return pd.read_csv(csv_path, index_col="date", parse_dates=True)
     return None
 
 
 def _save_cache(df: pd.DataFrame, path: Path):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(path)
-    logger.info("Saved to cache: %s", path.name)
+    # Parquet is faster/smaller, but needs pyarrow or fastparquet. If neither is
+    # installed, fall back to CSV so caching works with zero extra dependencies.
+    try:
+        df.to_parquet(path)
+        logger.info("Saved to cache: %s", path.name)
+    except ImportError:
+        csv_path = path.with_suffix(".csv")
+        df.to_csv(csv_path)
+        logger.info("pyarrow/fastparquet not found — saved CSV cache: %s", csv_path.name)
 
 
 # ── Sources ───────────────────────────────────────────────────────────────────
