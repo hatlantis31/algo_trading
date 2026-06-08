@@ -243,15 +243,51 @@ def ic_weighted_alpha(
     return combined
 
 
+def fundamental_factor_matrix(
+    fundamentals: pd.DataFrame,
+    tickers,
+    standardized: bool = True,
+) -> pd.DataFrame:
+    """
+    Build a cross-sectional factor matrix from a STATIC fundamentals frame
+    (rows=tickers, cols=value/quality factors such as earnings_yield,
+    book_to_price, …; see core.fundamentals_loader.fundamental_factors).
+
+    Returns rows=tickers (restricted to `tickers`), cols=factor names, each
+    column cross-sectionally standardized so it composes with build_factor_matrix.
+
+    NOTE: a static snapshot is look-ahead biased for historical backtests — see
+    the warning in core/fundamentals_loader.py. Use for live ranking, or accept
+    the bias for slow-moving value ratios.
+    """
+    if fundamentals is None or fundamentals.empty:
+        return pd.DataFrame()
+    sub = fundamentals.reindex(tickers)
+    cols = {}
+    for name in sub.columns:
+        raw = pd.to_numeric(sub[name], errors="coerce")
+        if raw.notna().sum() < 5:
+            continue
+        cols[name] = standardize(raw) if standardized else raw
+    if not cols:
+        return pd.DataFrame()
+    return pd.DataFrame(cols)
+
+
 def build_factor_matrix(
     prices: pd.DataFrame,
     volume: pd.DataFrame = None,
     factors: dict = None,
     standardized: bool = True,
+    fundamentals: pd.DataFrame = None,
 ) -> pd.DataFrame:
     """
     Compute all factors at the last date of the panel and return a DataFrame
     (rows=tickers, cols=factor names). Each column cross-sectionally standardized.
+
+    If `fundamentals` (a static per-ticker value/quality frame) is supplied, its
+    standardized columns are appended — letting the same IC-weighting / ML
+    combiner blend price and fundamental signals together.
     """
     factors = factors or ALL_FACTORS
     cols = {}
@@ -263,6 +299,14 @@ def build_factor_matrix(
             cols[name] = standardize(raw) if standardized else raw
         except Exception:
             continue
-    if not cols:
-        return pd.DataFrame()
-    return pd.DataFrame(cols)
+    price_fm = pd.DataFrame(cols) if cols else pd.DataFrame()
+
+    if fundamentals is not None and not price_fm.empty:
+        fund_fm = fundamental_factor_matrix(fundamentals, price_fm.index,
+                                            standardized=standardized)
+        if not fund_fm.empty:
+            # prefix to avoid name clashes and keep provenance clear
+            fund_fm = fund_fm.add_prefix("fnd_")
+            price_fm = price_fm.join(fund_fm, how="left")
+
+    return price_fm

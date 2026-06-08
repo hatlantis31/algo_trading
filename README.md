@@ -19,8 +19,10 @@ algo_trading/
 │   ├── 04_backtest_runner.ipynb
 │   ├── 05_strategy_matrix.ipynb
 │   ├── 06_regime_and_tuning.ipynb       # regime filter + grid search
-│   └── 07_sota_comparison.ipynb         # naive vs professional quant (real data)
-└── tests/               # pytest unit tests (39 tests)
+│   ├── 07_sota_comparison.ipynb         # naive vs professional quant (real data)
+│   ├── 09_hedge_fund_strategy.ipynb     # full market-neutral pipeline
+│   └── 10_fundamental_data.ipynb        # adding fundamental value/quality factors
+└── tests/               # pytest unit tests
 ```
 
 ## Tier 3 — hedge-fund-grade market-neutral (the full pipeline)
@@ -57,6 +59,34 @@ result = PortfolioEngine("ME", cost_bps=10).run(close_panel, hf.weights)
 > alone. The ML ranker and raw mean-variance did NOT beat the simple robust
 > construction (over-engineering hurt). Real funds need fundamental data, a larger
 > universe, and multi-regime history to push higher.
+
+## Better-quality input — fundamental data (notebook 10)
+
+Price/volume factors top out at IC ≈ 0.01–0.03. **Fundamental** value/quality
+factors add *orthogonal* alpha price history cannot contain.
+
+`core/fundamentals_loader.py` pulls a real S&P 500 fundamentals snapshot from
+GitHub (**no API key, no registration** — works in any locked-down environment):
+earnings yield, book-to-price, sales yield, EBITDA yield, dividend yield, size.
+
+```python
+from core.fundamentals_loader import download_fundamentals, fundamental_factors
+download_fundamentals()                         # ~70 KB into data/ (gitignored)
+fund = fundamental_factors(list(close.columns)) # static per-ticker value/quality frame
+hf = HedgeFundStrategy(volume_panel=vol, fundamentals=fund,
+                       alpha_combination="ic_weighted")  # IC-weighter learns each sign
+```
+
+> **Honest finding:** every value factor has *negative* IC in 2013–2018 ("value's
+> lost decade"). Equal-weighting them is a disaster (−0.9 Sharpe); IC-weighting
+> learns the sign and flips them into a net contributor (−0.09 → +0.11 Sharpe).
+> Fundamental data helps **only when combined adaptively**.
+>
+> The bundled snapshot is dated ≈ Feb 2018 (the *end* of the price panel), so it is
+> **look-ahead biased** for historical backtests. For clean point-in-time history
+> run `scripts/ingest_fundamentals_local.py` on your own machine (SimFin free tier
+> or yfinance — registration steps inside). At a <€10 budget the SimFin **free**
+> tier is the right choice; no reputable sub-€10 point-in-time feed is worth buying.
 
 ## Two tiers of strategy
 

@@ -10,7 +10,7 @@ import pytest
 
 from strategies.alpha_factors import (
     momentum, reversal, low_volatility, standardize, neutralize,
-    build_factor_matrix, ic_weighted_alpha, ALL_FACTORS,
+    build_factor_matrix, fundamental_factor_matrix, ic_weighted_alpha, ALL_FACTORS,
 )
 from backtesting.risk_model import RiskModel
 from backtesting.optimizer import mean_variance_neutral, realized_neutrality, long_only_optimized
@@ -60,6 +60,53 @@ class TestAlphaFactors:
         fm = build_factor_matrix(p, v)
         assert fm.shape[1] >= 5
         assert not fm.empty
+
+
+def make_fundamentals(tickers, seed=7):
+    """Synthetic static value/quality frame matching the loader's schema."""
+    rng = np.random.default_rng(seed)
+    return pd.DataFrame({
+        "earnings_yield": rng.uniform(0.01, 0.10, len(tickers)),
+        "book_to_price":  rng.uniform(0.10, 1.50, len(tickers)),
+        "sales_yield":    rng.uniform(0.05, 3.00, len(tickers)),
+        "ebitda_yield":   rng.uniform(0.02, 0.30, len(tickers)),
+        "dividend_yield": rng.uniform(0.00, 0.06, len(tickers)),
+        "size":          -rng.uniform(22, 29, len(tickers)),
+    }, index=list(tickers))
+
+
+class TestFundamentals:
+    def test_fundamental_matrix_standardized(self):
+        p, _ = make_panels()
+        fund = make_fundamentals(p.columns)
+        fm = fundamental_factor_matrix(fund, list(p.columns))
+        assert not fm.empty
+        # each column cross-sectionally standardized → ~zero mean
+        assert fm.mean().abs().max() < 1e-6
+        assert fm.shape[1] == 6
+
+    def test_build_matrix_appends_fundamentals(self):
+        p, v = make_panels()
+        base = build_factor_matrix(p, v)
+        withf = build_factor_matrix(p, v, fundamentals=make_fundamentals(p.columns))
+        # fundamentals add fnd_* columns without dropping the price factors
+        assert withf.shape[1] > base.shape[1]
+        assert any(c.startswith("fnd_") for c in withf.columns)
+
+    def test_strategy_accepts_fundamentals(self):
+        p, v = make_panels(400, 40)
+        fund = make_fundamentals(p.columns)
+        hf = HedgeFundStrategy(volume_panel=v, fundamentals=fund,
+                               alpha_combination="ic_weighted", construction="decile")
+        res = PortfolioEngine("ME", cost_bps=10).run(p, hf.weights)
+        assert res.equity_curve is not None
+
+    def test_missing_fundamentals_are_safe(self):
+        """Tickers absent from the fundamentals frame must not crash the pipeline."""
+        p, v = make_panels(400, 40)
+        fund = make_fundamentals(list(p.columns)[:20])   # only half covered
+        fm = build_factor_matrix(p, v, fundamentals=fund)
+        assert any(c.startswith("fnd_") for c in fm.columns)
 
 
 class TestRiskModel:

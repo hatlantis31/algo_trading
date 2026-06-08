@@ -41,10 +41,12 @@ class HedgeFundStrategy:
         opt_shrinkage: float = 0.5,
         factor_set: dict = None,
         sector_map: dict = None,
+        fundamentals: pd.DataFrame = None,
         ml_model: MLAlphaModel = None,
         name: str = None,
     ):
         self.volume_panel = volume_panel
+        self.fundamentals = fundamentals
         self.alpha_combination = alpha_combination
         self.market_neutral = market_neutral
         self.construction = construction
@@ -66,7 +68,8 @@ class HedgeFundStrategy:
     def weights(self, prices: pd.DataFrame, date) -> pd.Series:
         # 1. Alpha factors at this date (cache for ML training)
         vol_hist = self.volume_panel.loc[:date] if self.volume_panel is not None else None
-        fm = build_factor_matrix(prices, vol_hist, factors=self.factor_set)
+        fm = build_factor_matrix(prices, vol_hist, factors=self.factor_set,
+                                 fundamentals=self.fundamentals)
         self._feature_cache[date] = fm
         if fm.empty or len(fm) < 10:
             return pd.Series(dtype=float)
