@@ -138,3 +138,79 @@ class TestPortfolioEngineIntegration:
             panel, strat.weights
         )
         assert isinstance(result.halt_log, list)
+
+
+class TestImprovements:
+    """Tests for the v2 levers: sell-rank buffer and risk-adjusted momentum."""
+
+    def test_rank_buffer_reduces_turnover(self):
+        """With the sell-rank buffer, holdings change less between rebalances."""
+        panel = make_panel(n=600, n_stocks=80, seed=11)
+        eng = PortfolioEngine(rebalance="ME", cost_bps=10)
+
+        no_buf = MarketBeatingStrategy(sell_rank_buffer=None,
+                                       risk_adjust_momentum=False)
+        with_buf = MarketBeatingStrategy(sell_rank_buffer=2.0,
+                                         risk_adjust_momentum=False)
+        r_no = eng.run(panel, no_buf.weights)
+        r_buf = eng.run(panel, with_buf.weights)
+        assert r_buf.turnover <= r_no.turnover + 1e-9
+
+    def test_rank_buffer_keeps_position_count(self):
+        """The buffer keeps held names but the book stays at ~k positions."""
+        panel = make_panel(n=600, n_stocks=100, seed=3)
+        strat = MarketBeatingStrategy(top_q=0.20, sell_rank_buffer=2.0)
+        dates = panel.index[400:600:21]
+        counts = []
+        for d in dates:
+            w = strat.weights(panel.loc[:d], d)
+            if not w.empty:
+                counts.append((w > 0).sum())
+        assert counts, "should produce weights after warm-up"
+        assert all(c == counts[0] for c in counts), "position count must stay constant"
+
+    def test_risk_adjusted_momentum_changes_selection(self):
+        """Risk-adjusting must (generically) select different names than raw."""
+        rng = np.random.default_rng(5)
+        n, n_stocks = 500, 60
+        # half the stocks: strong trend, high vol; other half: mild trend, low vol
+        trends = np.r_[np.full(30, 0.0012), np.full(30, 0.0005)]
+        vols = np.r_[np.full(30, 0.035), np.full(30, 0.008)]
+        rets = rng.normal(0, 1, (n, n_stocks)) * vols + trends
+        prices = 100 * np.exp(np.cumsum(rets, axis=0))
+        panel = pd.DataFrame(prices, columns=[f"S{i:02d}" for i in range(n_stocks)],
+                             index=pd.date_range("2020-01-01", periods=n, freq="B"))
+
+        raw = MarketBeatingStrategy(sell_rank_buffer=None, risk_adjust_momentum=False)
+        adj = MarketBeatingStrategy(sell_rank_buffer=None, risk_adjust_momentum=True)
+        w_raw = raw.weights(panel, panel.index[-1])
+        w_adj = adj.weights(panel, panel.index[-1])
+        # risk-adjusted picks more of the low-vol-trend names
+        low_vol_names = {f"S{i:02d}" for i in range(30, 60)}
+        n_low_raw = len(set(w_raw[w_raw > 0].index) & low_vol_names)
+        n_low_adj = len(set(w_adj[w_adj > 0].index) & low_vol_names)
+        assert n_low_adj >= n_low_raw
+
+    def test_score_weighting_sums_to_one(self):
+        strat = MarketBeatingStrategy(weighting="score")
+        panel = make_panel(n=500)
+        w = strat.weights(panel, panel.index[-1])
+        if not w.empty:
+            assert abs(w.sum() - 1.0) < 1e-6
+            assert (w >= 0).all()
+
+    def test_vol_scale_caps_exposure(self):
+        """Vol scaling can only reduce exposure, never lever up."""
+        strat = MarketBeatingStrategy(vol_scale_target=0.05)  # very low target
+        panel = make_panel(n=500)
+        w = strat.weights(panel, panel.index[-1])
+        if not w.empty:
+            assert w.sum() < 1.0   # must have scaled down
+
+    def test_reset_clears_holdings(self):
+        strat = MarketBeatingStrategy(sell_rank_buffer=2.0)
+        panel = make_panel(n=500)
+        strat.weights(panel, panel.index[-1])
+        assert strat._held
+        strat.reset()
+        assert not strat._held

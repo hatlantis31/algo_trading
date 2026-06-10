@@ -2,12 +2,13 @@
 validate_market_beating.py — prove the long-only momentum factor strategy beats the market.
 
 Runs three portfolios side by side:
-  1. Equal-weight benchmark       (hold all stocks, monthly rebalance)
-  2. Pure-momentum selection      (top 25%, 3 horizons, no regime filter)
-  3. Momentum + regime filter     (add 30% cash in bear markets)
+  1. Equal-weight benchmark    (hold all stocks, monthly rebalance)
+  2. V1 baseline               (raw momentum, top 20%, no buffer)
+  3. V2 improved (primary)     (risk-adjusted momentum [Barroso-Santa-Clara] +
+                                sell-rank buffer [buy top-k, sell at 2k])
 
-The primary strategy to beat the market is #2 — momentum-driven stock
-selection with an EW warm-up fallback.
+The primary strategy to beat the market is #3 — the current defaults of
+MarketBeatingStrategy.
 
     python scripts/validate_market_beating.py
 """
@@ -27,7 +28,9 @@ FUND_PATH = DATA_DIR / "fundamentals_timeseries.parquet"
 PRICE_PATH = DATA_DIR / "price_panel_daily.parquet"
 VOLUME_PATH = DATA_DIR / "volume_panel_daily.parquet"
 
-N_TRIALS = 5
+# Honest trial count: 5 initial design iterations + 16 improvement variants
+# tested in scripts/research_improvements.py
+N_TRIALS = 21
 COST = 10   # bps per unit turnover
 
 
@@ -122,36 +125,33 @@ def main():
         prices, EqualWeightBenchmark().weights, name="benchmark"
     )
 
-    # ── 2. Momentum selection, no regime filter (primary strategy) ─────────
-    print("Running primary strategy (momentum selection, no regime filter)...")
-    strat_no_filter = MarketBeatingStrategy(
-        volume_panel=volume, fundamentals_ts=fund_ts,
-        regime_scale=1.0,    # disable regime filter
-        name="MomentumSelection",
+    # ── 2. Previous baseline: raw momentum, no buffer ──────────────────────
+    print("Running v1 baseline (raw momentum, no rank buffer)...")
+    strat_v1 = MarketBeatingStrategy(
+        volume_panel=volume,
+        sell_rank_buffer=None, risk_adjust_momentum=False,
+        name="MomentumV1",
     )
-    res_no_filter = PortfolioEngine(rebalance="ME", cost_bps=COST).run(
-        prices, strat_no_filter.weights, name="momentum_no_filter"
+    res_v1 = PortfolioEngine(rebalance="ME", cost_bps=COST).run(
+        prices, strat_v1.weights, name="momentum_v1"
     )
 
-    # ── 3. Momentum + regime filter ────────────────────────────────────────
-    print("Running momentum + regime filter...")
-    strat_full = MarketBeatingStrategy(
-        volume_panel=volume, fundamentals_ts=fund_ts,
-        regime_scale=0.30,
-        name="MomentumWithRegime",
-    )
-    res_full = PortfolioEngine(rebalance="ME", cost_bps=COST).run(
-        prices, strat_full.weights, name="momentum_regime"
+    # ── 3. Improved (primary): risk-adjusted momentum + sell-rank buffer ───
+    print("Running improved strategy (risk-adj momentum + rank buffer)...")
+    strat_v2 = MarketBeatingStrategy(volume_panel=volume, name="MarketBeaterV2")
+    res_v2 = PortfolioEngine(rebalance="ME", cost_bps=COST).run(
+        prices, strat_v2.weights, name="market_beater_v2"
     )
 
     bm_rets = bm.returns
 
     sharpe_bm,  ret_bm,  dd_bm  = report(bm.returns, "1. EQUAL-WEIGHT BENCHMARK")
-    sharpe_nf,  ret_nf,  dd_nf  = report(
-        res_no_filter.returns, "2. MOMENTUM SELECTION (primary — no regime filter)", bm_rets
+    sharpe_v1,  ret_v1,  dd_v1  = report(
+        res_v1.returns, "2. V1 BASELINE (raw momentum, no buffer)", bm_rets
     )
-    sharpe_f,   ret_f,   dd_f   = report(
-        res_full.returns, "3. MOMENTUM + REGIME FILTER", bm_rets
+    sharpe_nf,  ret_nf,  dd_nf  = report(
+        res_v2.returns,
+        "3. IMPROVED (primary — risk-adj momentum + sell-rank buffer)", bm_rets
     )
 
     # ── Summary table ──────────────────────────────────────────────────────
@@ -159,9 +159,9 @@ def main():
     print("HEAD-TO-HEAD COMPARISON")
     print("=" * 62)
     rows = [
-        ("Equal-weight benchmark",          ret_bm,  sharpe_bm, dd_bm),
-        ("Momentum selection (primary)",    ret_nf,  sharpe_nf, dd_nf),
-        ("Momentum + regime filter",        ret_f,   sharpe_f,  dd_f),
+        ("Equal-weight benchmark",            ret_bm,  sharpe_bm, dd_bm),
+        ("V1: raw momentum",                  ret_v1,  sharpe_v1, dd_v1),
+        ("V2: risk-adj mom + rank buffer",    ret_nf,  sharpe_nf, dd_nf),
     ]
     print(f"{'Strategy':<36}  {'Ann Ret':>8}  {'Sharpe':>7}  {'Max DD':>8}")
     print("-" * 63)

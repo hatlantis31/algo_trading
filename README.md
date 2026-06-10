@@ -32,42 +32,52 @@ that beats an equal-weight S&P 500 benchmark on return, Sharpe, and max drawdown
 
 **Validated on real point-in-time data (2020–2025, `scripts/validate_market_beating.py`)**
 
-| strategy | Ann Return | Sharpe | Max DD | CPCV paths>0 |
-|---|---|---|---|---|
-| Equal-weight benchmark | +18.0% | 0.95 | −24.9% | 93% |
-| **MarketBeatingStrategy** | **+19.2%** | **0.96** | **−24.3%** | **100%** |
+| strategy | Ann Return | Sharpe | Max DD | alpha/yr | IR | turnover |
+|---|---|---|---|---|---|---|
+| Equal-weight benchmark | +18.0% | 0.95 | −24.9% | — | — | — |
+| v1: raw momentum, top 20% | +19.5% | 0.98 | −23.8% | +1.5% | 0.14 | 0.28 |
+| **v2 (current): risk-adj momentum + rank buffer** | **+20.5%** | **1.09** | **−19.0%** | **+2.5%** | **0.25** | **0.16** |
 
-Three design levers:
+Design levers (each tested in `scripts/research_improvements.py` — 11 variants head-to-head):
 1. **Momentum selection** — hold only the top 20% of the universe ranked by a composite
    of 6-month momentum, 12-month momentum, 52-week-high proximity, and trend quality.
    No low-volatility or reversal factors — those bias toward low-beta defensive names
    that lag in bull markets.
-2. **Warm-up fallback** — equal-weight all stocks until 147 days of price history
-   accumulate (when momentum signal first becomes available). Avoids dead-cash during
-   the initial period.
-3. **Equal weighting within selection** — equal-weighting within the top quintile
-   preserves the high-beta nature of momentum winners (avoids the inverse-vol tilt
-   toward defensive names).
+2. **Risk-adjusted momentum** (Barroso & Santa-Clara 2015) — rank by momentum ÷ realized
+   vol instead of raw momentum. Biggest single improvement: Sharpe 0.98 → 1.08, max DD
+   −24% → −19%. Prefers smooth trends over volatile spikes.
+3. **Sell-rank buffer** (Jegadeesh-Titman implementation practice) — buy at top-k, hold
+   until rank falls below 2k. Halves turnover (0.28 → 0.16) and adds ~1% alpha by not
+   churning positions that wobble around the selection boundary.
+4. **Warm-up fallback** — equal-weight all stocks until 147 days of price history
+   accumulate. Avoids dead-cash during the initial period.
+
+Tested and **rejected** (kept honest — these did not help):
+- regime filter (200-day MA): momentum already self-selects defensive names in bears
+- quality tilt (PIT earnings yield): −0.04 Sharpe vs winner
+- vol-targeted exposure scaling: no improvement over risk-adjusting the ranking itself
+- tighter concentration (top 10/15%): more alpha but worse drawdown — noise-level Sharpe gain
+- score-proportional weighting: +1.8% return but −0.02 Sharpe and +8.7% worse DD
 
 Why it works year by year:
-- **2022 (bear): −3.6%** vs benchmark −12.9% — momentum selects the 2021 trend winners
-  that held up in the 2022 selloff (energy, commodities), not the tech names that crashed.
-- **2024 (AI bull): +29.5%** vs benchmark +17.6% — by 2024, NVDA/META/GOOG have
-  strong 12-month momentum; concentrated 20% selection overweights these names at 5%
-  each vs 0.17% in the equal-weight benchmark.
+- **2022 (bear): −5.3%** vs benchmark −12.9% — risk-adjusted momentum holds the smooth
+  2021 winners (energy, staples), not the volatile tech names that crashed.
+- **2024 (AI bull): +32.3%** vs benchmark +17.6% — NVDA/META-style names have strong
+  12-month momentum; the concentrated selection overweights them at ~1% each vs 0.17%
+  in the equal-weight benchmark.
 
 ```python
 from strategies.long_only_factor import MarketBeatingStrategy
 from backtesting import PortfolioEngine
-strat = MarketBeatingStrategy(volume_panel=vol, fundamentals_ts=ts)
+strat = MarketBeatingStrategy(volume_panel=vol)   # v2 defaults: risk-adj + buffer
 result = PortfolioEngine("ME", cost_bps=10).run(close_panel, strat.weights)
 ```
 
-> **Honest caveat**: the +1.2% annual alpha comes from a single 5-year sample.
-> IR = 0.11 is low (statistically insignificant in isolation).  The CPCV is
-> convincing (100% paths positive), but ~60 months is too short to separate
-> a 1% alpha from noise.  Real validation needs a longer out-of-sample period
-> or a live forward test.
+> **Honest caveat**: +2.5% annual alpha, IR 0.25, t-stat 2.4 on a single 5-year sample;
+> Deflated Sharpe 0.69 after counting all 21 research trials. The CPCV is solid (93%
+> paths positive, mean Sharpe 1.13), but ~60 months cannot statistically separate a
+> 2.5% alpha from luck. Real validation needs a longer out-of-sample window or a live
+> forward test.
 
 ---
 
