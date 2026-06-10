@@ -17,5 +17,7 @@ data/*.parquet
 data/*.csv
 data/*.h5
 !data/.gitkeep
-# allow the committed fundamentals file so Claude Code in the sandbox can analyze it
+# allow the committed research datasets so Claude Code in the sandbox can analyze them
 !data/fundamentals_timeseries.parquet
+!data/price_panel_daily.parquet
+!data/volume_panel_daily.parquet
