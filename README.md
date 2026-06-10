@@ -60,6 +60,23 @@ result = PortfolioEngine("ME", cost_bps=10).run(close_panel, hf.weights)
 > construction (over-engineering hurt). Real funds need fundamental data, a larger
 > universe, and multi-regime history to push higher.
 
+### Validated on true point-in-time data (2020–2025, notebook 11)
+
+With real SimFin fundamentals (publish-date aligned, survivorship-bias-free,
+window includes the 2022 bear) the fundamentals-only market-neutral sleeve achieves,
+**net of 10 bps costs** at 1.0x gross:
+
+| | result |
+|---|---|
+| Sharpe | **+0.54** (value-spread conditioned; +0.41 unconditioned) |
+| 2022 bear market | **+15.6%** while equities fell ~20% |
+| max drawdown | −9.4% |
+| honest stats | t = 1.1, Deflated Sharpe 0.27 on 51 months — real machinery, not yet statistically significant (no 4-year sample can be; see `core/diagnostics.py`) |
+
+Run it yourself: `python scripts/validate_full_pipeline.py` — automatically runs the
+full daily pipeline (price factors + point-in-time fundamentals + weekly rebalancing)
+when `data/price_panel_daily.parquet` exists, else the monthly validation.
+
 ## Better-quality input — fundamental data (notebook 10)
 
 Price/volume factors top out at IC ≈ 0.01–0.03. **Fundamental** value/quality
