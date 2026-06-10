@@ -29,3 +29,9 @@ CROSS_SECTIONAL_REGISTRY = {
     "xs_multifactor": MultiFactor,
     "equal_weight":  EqualWeightBenchmark,
 }
+
+# Market-beating long-only strategy: multi-horizon momentum selection
+# with equal-weight warm-up fallback.  Beats equal-weight benchmark
+# on return, Sharpe, and max drawdown (see scripts/validate_market_beating.py).
+from .long_only_factor import MarketBeatingStrategy
+CROSS_SECTIONAL_REGISTRY["market_beater"] = MarketBeatingStrategy

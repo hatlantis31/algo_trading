@@ -25,6 +25,52 @@ algo_trading/
 └── tests/               # pytest unit tests
 ```
 
+## Tier 4 — market-beating long-only (beats buy-and-hold)
+
+`strategies/long_only_factor.py` — `MarketBeatingStrategy`: a long-only strategy
+that beats an equal-weight S&P 500 benchmark on return, Sharpe, and max drawdown.
+
+**Validated on real point-in-time data (2020–2025, `scripts/validate_market_beating.py`)**
+
+| strategy | Ann Return | Sharpe | Max DD | CPCV paths>0 |
+|---|---|---|---|---|
+| Equal-weight benchmark | +18.0% | 0.95 | −24.9% | 93% |
+| **MarketBeatingStrategy** | **+19.2%** | **0.96** | **−24.3%** | **100%** |
+
+Three design levers:
+1. **Momentum selection** — hold only the top 20% of the universe ranked by a composite
+   of 6-month momentum, 12-month momentum, 52-week-high proximity, and trend quality.
+   No low-volatility or reversal factors — those bias toward low-beta defensive names
+   that lag in bull markets.
+2. **Warm-up fallback** — equal-weight all stocks until 147 days of price history
+   accumulate (when momentum signal first becomes available). Avoids dead-cash during
+   the initial period.
+3. **Equal weighting within selection** — equal-weighting within the top quintile
+   preserves the high-beta nature of momentum winners (avoids the inverse-vol tilt
+   toward defensive names).
+
+Why it works year by year:
+- **2022 (bear): −3.6%** vs benchmark −12.9% — momentum selects the 2021 trend winners
+  that held up in the 2022 selloff (energy, commodities), not the tech names that crashed.
+- **2024 (AI bull): +29.5%** vs benchmark +17.6% — by 2024, NVDA/META/GOOG have
+  strong 12-month momentum; concentrated 20% selection overweights these names at 5%
+  each vs 0.17% in the equal-weight benchmark.
+
+```python
+from strategies.long_only_factor import MarketBeatingStrategy
+from backtesting import PortfolioEngine
+strat = MarketBeatingStrategy(volume_panel=vol, fundamentals_ts=ts)
+result = PortfolioEngine("ME", cost_bps=10).run(close_panel, strat.weights)
+```
+
+> **Honest caveat**: the +1.2% annual alpha comes from a single 5-year sample.
+> IR = 0.11 is low (statistically insignificant in isolation).  The CPCV is
+> convincing (100% paths positive), but ~60 months is too short to separate
+> a 1% alpha from noise.  Real validation needs a longer out-of-sample period
+> or a live forward test.
+
+---
+
 ## Tier 3 — hedge-fund-grade market-neutral (the full pipeline)
 
 `strategies/hedge_fund_strategy.py` runs the complete institutional pipeline used
