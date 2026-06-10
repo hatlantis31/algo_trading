@@ -109,6 +109,79 @@ class TestFundamentals:
         assert any(c.startswith("fnd_") for c in fm.columns)
 
 
+class TestFundamentalsTimeSeries:
+    def _make_ts(self, tmp_path, tickers, n_quarters=8, start="2020-01-31"):
+        """Synthetic month-end fundamentals parquet with raw numerators."""
+        rng = np.random.default_rng(11)
+        dates = pd.date_range(start, periods=n_quarters * 3, freq="ME")
+        rows = []
+        for i, d in enumerate(dates):
+            q = i // 3  # figures step once per quarter
+            for j, t in enumerate(tickers):
+                ni = 1e8 * (1 + j) * (1 + 0.02 * q)
+                eq = 1e9 * (1 + j)
+                rev = 4e8 * (1 + j)
+                shares = 1e7 * (1 + j)
+                mcap = shares * 100.0
+                rows.append({
+                    "date": d, "ticker": t,
+                    "net_income": ni, "total_equity": eq, "revenue": rev,
+                    "operating_income": ni * 1.3, "dividends_paid": -ni * 0.3,
+                    "shares": shares,
+                    "earnings_yield": ni / mcap, "book_to_price": eq / mcap,
+                    "sales_yield": rev / mcap, "ebitda_yield": ni * 1.3 / mcap,
+                    "dividend_yield": ni * 0.3 / mcap, "size": -np.log(mcap),
+                })
+        df = pd.DataFrame(rows).set_index(["date", "ticker"])
+        path = tmp_path / "fund_ts.parquet"
+        df.to_parquet(path)
+        return path
+
+    def test_asof_no_lookahead(self, tmp_path):
+        from core.fundamentals_ts import FundamentalsTimeSeries
+        tickers = [f"S{i:02d}" for i in range(5)]
+        ts = FundamentalsTimeSeries(self._make_ts(tmp_path, tickers))
+        early = ts.asof("2020-04-30")
+        # truncating the future must not change the past view
+        late = ts.asof("2020-04-30")
+        assert early.equals(late)
+        # before any data exists → empty
+        assert ts.asof("2019-06-30").empty
+
+    def test_live_price_recompute(self, tmp_path):
+        from core.fundamentals_ts import FundamentalsTimeSeries
+        tickers = [f"S{i:02d}" for i in range(5)]
+        ts = FundamentalsTimeSeries(self._make_ts(tmp_path, tickers))
+        d = "2020-06-30"
+        frozen = ts.asof(d)
+        live = ts.asof(d, prices=pd.Series(200.0, index=tickers))  # frozen used 100
+        # doubling the price must halve the earnings yield
+        ratio = (live["earnings_yield"] / frozen["earnings_yield"]).dropna()
+        assert np.allclose(ratio, 0.5, atol=1e-9)
+
+    def test_staleness_drops_dead_names(self, tmp_path):
+        from core.fundamentals_ts import FundamentalsTimeSeries
+        tickers = [f"S{i:02d}" for i in range(5)]
+        ts = FundamentalsTimeSeries(self._make_ts(tmp_path, tickers),
+                                    max_staleness_days=90)
+        # last sample ~2021-12-31; a year later everything is stale
+        assert ts.asof("2022-12-31").empty
+
+    def test_weekly_rebalance_with_ts(self, tmp_path):
+        """Daily data, WEEKLY trades, point-in-time fundamentals — the live setup."""
+        from core.fundamentals_ts import FundamentalsTimeSeries
+        p, v = make_panels(400, 40)
+        ts = FundamentalsTimeSeries(
+            self._make_ts(tmp_path, list(p.columns), n_quarters=8,
+                          start=str(p.index[0].date())))
+        hf = HedgeFundStrategy(volume_panel=v, fundamentals_ts=ts,
+                               alpha_combination="ic_weighted", construction="decile")
+        res = PortfolioEngine("W-FRI", cost_bps=10).run(p, hf.weights)
+        assert len(res.equity_curve) == len(p)
+        fm = hf._feature_cache[sorted(hf._feature_cache)[-1]]
+        assert any(c.startswith("fnd_") for c in fm.columns)
+
+
 class TestRiskModel:
     def test_cov_well_conditioned(self):
         p, _ = make_panels()

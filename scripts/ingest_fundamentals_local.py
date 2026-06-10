@@ -55,7 +55,15 @@ def _safe_col(df: pd.DataFrame, col: str) -> pd.Series:
 
 
 def _derive(df: pd.DataFrame) -> pd.DataFrame:
-    """Map raw statement fields → the model's standard factor columns."""
+    """Map raw statement fields → the model's standard factor columns.
+
+    Keeps both the derived yields (computed with the market cap as of each row's
+    date) AND the raw numerators + shares. The raw columns let the strategy
+    recompute yields with the LIVE price at trade time, so fundamental frequency
+    (quarterly) is fully decoupled from trade frequency (daily/weekly):
+
+        earnings_yield(t) = net_income(as-of t) / (price[t] * shares(as-of t))
+    """
     out = pd.DataFrame(index=df.index)
     mcap = df["market_cap"].where(df["market_cap"] > 0)
     out["earnings_yield"] = _safe_col(df, "net_income") / mcap
@@ -65,6 +73,10 @@ def _derive(df: pd.DataFrame) -> pd.DataFrame:
     out["ebitda_yield"]   = _safe_col(df, "operating_income") / mcap
     out["dividend_yield"] = _safe_col(df, "dividends_paid").abs() / mcap
     out["size"]           = -np.log(mcap)
+    # raw numerators for live recompute (see core/fundamentals_ts.py)
+    for col in ("net_income", "total_equity", "revenue",
+                "operating_income", "dividends_paid", "shares"):
+        out[col] = _safe_col(df, col)
     return out
 
 

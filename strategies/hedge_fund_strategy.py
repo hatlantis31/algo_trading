@@ -42,11 +42,20 @@ class HedgeFundStrategy:
         factor_set: dict = None,
         sector_map: dict = None,
         fundamentals: pd.DataFrame = None,
+        fundamentals_ts=None,
         ml_model: MLAlphaModel = None,
         name: str = None,
     ):
+        """
+        fundamentals    : STATIC per-ticker value/quality frame (snapshot —
+                          look-ahead biased for historical backtests).
+        fundamentals_ts : a core.fundamentals_ts.FundamentalsTimeSeries —
+                          point-in-time as-of lookup with live-price recompute.
+                          Takes priority over `fundamentals` when both given.
+        """
         self.volume_panel = volume_panel
         self.fundamentals = fundamentals
+        self.fundamentals_ts = fundamentals_ts
         self.alpha_combination = alpha_combination
         self.market_neutral = market_neutral
         self.construction = construction
@@ -68,8 +77,14 @@ class HedgeFundStrategy:
     def weights(self, prices: pd.DataFrame, date) -> pd.Series:
         # 1. Alpha factors at this date (cache for ML training)
         vol_hist = self.volume_panel.loc[:date] if self.volume_panel is not None else None
+        fund = self.fundamentals
+        if self.fundamentals_ts is not None:
+            # point-in-time lookup, yields recomputed with today's live prices
+            fund = self.fundamentals_ts.asof(date, prices=prices.iloc[-1])
+            if fund.empty:
+                fund = None
         fm = build_factor_matrix(prices, vol_hist, factors=self.factor_set,
-                                 fundamentals=self.fundamentals)
+                                 fundamentals=fund)
         self._feature_cache[date] = fm
         if fm.empty or len(fm) < 10:
             return pd.Series(dtype=float)
