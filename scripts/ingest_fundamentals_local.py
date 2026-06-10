@@ -49,16 +49,22 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 OUT_PATH = DATA_DIR / "fundamentals_timeseries.parquet"
 
 
+def _safe_col(df: pd.DataFrame, col: str) -> pd.Series:
+    """Return column if present, else NaN Series (never crashes on missing cols)."""
+    return df[col] if col in df.columns else pd.Series(np.nan, index=df.index)
+
+
 def _derive(df: pd.DataFrame) -> pd.DataFrame:
     """Map raw statement fields → the model's standard factor columns."""
     out = pd.DataFrame(index=df.index)
     mcap = df["market_cap"].where(df["market_cap"] > 0)
-    out["earnings_yield"] = df["net_income"] / mcap
-    out["book_to_price"] = df["total_equity"] / mcap
-    out["sales_yield"] = df["revenue"] / mcap
-    out["ebitda_yield"] = df.get("ebitda", np.nan) / mcap
-    out["dividend_yield"] = df.get("dividends_paid", 0).abs() / mcap
-    out["size"] = -np.log(mcap)
+    out["earnings_yield"] = _safe_col(df, "net_income") / mcap
+    out["book_to_price"]  = _safe_col(df, "total_equity") / mcap
+    out["sales_yield"]    = _safe_col(df, "revenue") / mcap
+    # operating_income is EBIT — good proxy for EBITDA, always available in SimFin
+    out["ebitda_yield"]   = _safe_col(df, "operating_income") / mcap
+    out["dividend_yield"] = _safe_col(df, "dividends_paid").abs() / mcap
+    out["size"]           = -np.log(mcap)
     return out
 
 
@@ -68,32 +74,43 @@ def from_simfin(api_key: str | None = None) -> pd.DataFrame:
     sf.set_api_key(api_key or os.environ.get("SIMFIN_API_KEY", "free"))
     sf.set_data_dir(str(DATA_DIR / "simfin"))
 
-    income = sf.load_income(variant="quarterly", market="us")
+    income  = sf.load_income(variant="quarterly",  market="us")
     balance = sf.load_balance(variant="quarterly", market="us")
-    shares = sf.load_shareprices(variant="daily", market="us")
+    cashflow = sf.load_cashflow(variant="quarterly", market="us")
+    shares  = sf.load_shareprices(variant="daily", market="us")
 
-    # publish-date alignment = the date the figures became public (no look-ahead)
-    inc = income.reset_index().rename(columns={
+    def prep(df, col_map):
+        """Reset index, rename columns, keep only what we need."""
+        d = df.reset_index()
+        d = d.rename(columns=col_map)
+        keep = ["date", "ticker"] + [v for v in col_map.values() if v not in ("date", "ticker")]
+        return d[[c for c in keep if c in d.columns]].sort_values("date")
+
+    inc = prep(income, {
         "Ticker": "ticker", "Publish Date": "date",
-        "Net Income": "net_income", "Revenue": "revenue",
+        "Net Income": "net_income",
+        "Revenue": "revenue",
+        "Operating Income (Loss)": "operating_income",
     })
-    bal = balance.reset_index().rename(columns={
+    bal = prep(balance, {
         "Ticker": "ticker", "Publish Date": "date",
         "Total Equity": "total_equity",
     })
+    cf = prep(cashflow, {
+        "Ticker": "ticker", "Publish Date": "date",
+        "Dividends Paid": "dividends_paid",
+    })
     px = (shares.reset_index()
           .rename(columns={"Ticker": "ticker", "Date": "date",
-                           "Close": "close", "Shares Outstanding": "shares"}))
+                           "Close": "close", "Shares Outstanding": "shares"})
+          .sort_values("date"))
     px["market_cap"] = px["close"] * px["shares"]
 
-    fund = pd.merge_asof(
-        px.sort_values("date"),
-        inc[["date", "ticker", "net_income", "revenue"]].sort_values("date"),
-        on="date", by="ticker")
-    fund = pd.merge_asof(
-        fund.sort_values("date"),
-        bal[["date", "ticker", "total_equity"]].sort_values("date"),
-        on="date", by="ticker")
+    # merge_asof: for each price-bar date, pull the most-recently PUBLISHED
+    # fundamental figures — this is point-in-time correct (no look-ahead).
+    fund = pd.merge_asof(px, inc, on="date", by="ticker")
+    fund = pd.merge_asof(fund.sort_values("date"), bal, on="date", by="ticker")
+    fund = pd.merge_asof(fund.sort_values("date"), cf,  on="date", by="ticker")
 
     fund = fund.set_index(["date", "ticker"])
     return _derive(fund)
