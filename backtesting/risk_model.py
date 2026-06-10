@@ -25,9 +25,13 @@ class RiskModel:
     def fit(self, prices: pd.DataFrame) -> "RiskModel":
         """Estimate shrunk covariance and market betas from a price panel."""
         rets = prices.pct_change().iloc[-self.lookback:].dropna(how="all")
-        # keep only tickers with sufficient history
-        good = rets.columns[rets.notna().sum() >= self.min_obs]
-        rets = rets[good].dropna()
+        # Real panels have NaN from listings/delistings — dropping whole rows
+        # would collapse the frame. Keep tickers that are still trading (data in
+        # the last week) with sufficient history, then zero-fill sporadic gaps
+        # (a zero return is a neutral, standard imputation for risk estimation).
+        alive = rets.columns[rets.iloc[-5:].notna().any()]
+        good = [c for c in alive if rets[c].notna().sum() >= self.min_obs]
+        rets = rets[good].fillna(0.0)
         if rets.shape[0] < self.min_obs or rets.shape[1] < 2:
             self._cov, self._betas, self._tickers = None, None, list(good)
             return self
