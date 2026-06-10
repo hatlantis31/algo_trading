@@ -77,6 +77,21 @@ class TestCircuitBreaker:
         assert not rm._halted
         assert any("RESUME" in e for e in rm.halt_log)
 
+    def test_cooldown_breaks_flat_book_deadlock(self):
+        """A halted (flat) book can never recover its drawdown — the cooldown
+        must force a resume, else a dd-halt is permanent (real bug: the 2021
+        halt zeroed the book for the remaining 3.5 years of the backtest)."""
+        rm = RiskManager(max_dd_halt=0.10, dd_resume_threshold=0.05,
+                         halt_cooldown_days=5)
+        vals = [1.0, 0.85] + [0.85] * 10        # crash, then flat forever
+        eq = pd.Series(vals, index=pd.date_range("2022-01-01", periods=len(vals), freq="B"))
+        states = [rm.check_halt(eq.iloc[:i+1]) for i in range(len(eq))]
+        assert states[1], "should halt on the crash"
+        assert not states[-1], "cooldown must force a resume"
+        assert any("cooldown" in e for e in rm.halt_log)
+        # dd measurement restarted: staying flat post-resume must NOT re-halt
+        assert not rm.check_halt(eq)
+
     def test_reset_clears_state(self):
         rm = RiskManager(max_dd_halt=0.05)
         eq = pd.Series([1.0, 0.90], index=pd.date_range("2022-01-01", periods=2))

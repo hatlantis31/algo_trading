@@ -122,10 +122,15 @@ class PortfolioEngine:
                     continue
                 prev_eq = equity_running.iloc[:i]
                 halted_mask.iloc[i] = self.risk_manager.check_halt(prev_eq, d)
-                # Update running equity (approximate, used only for circuit breaker)
-                w_row = applied_w.iloc[i]
-                r_row = daily_ret.iloc[i]
-                bar_ret = (w_row * r_row).sum()
+                # Update running equity (approximate, used only for circuit breaker).
+                # A halted book is in cash: bar return is 0, so the breaker
+                # tracks the ACTUAL book, not a hypothetical still-invested one.
+                if halted_mask.iloc[i]:
+                    bar_ret = 0.0
+                else:
+                    w_row = applied_w.iloc[i]
+                    r_row = daily_ret.iloc[i]
+                    bar_ret = (w_row * r_row).sum()
                 equity_running.iloc[i] = equity_running.iloc[i - 1] * (1 + bar_ret)
 
             # Zero out weights on halted days

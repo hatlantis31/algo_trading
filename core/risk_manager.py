@@ -67,6 +67,9 @@ class RiskManager:
         # ── Portfolio-level circuit breakers ─────────────────────────────
         max_dd_halt: float = 0.15,         # halt at 15% drawdown from peak
         dd_resume_threshold: float = 0.05, # resume only when DD recovers to 5%
+        halt_cooldown_days: int = 21,      # force resume after this many halted bars
+                                           # (a flat book can NEVER recover its dd —
+                                           # without a cooldown a dd-halt is permanent)
         max_daily_loss: float = 0.03,      # halt if single-day loss > 3%
 
         # ── Risk metrics ─────────────────────────────────────────────────
@@ -88,8 +91,11 @@ class RiskManager:
         self.var_lookback        = var_lookback
         self.max_beta            = max_beta
         self.hard_halt           = hard_halt
+        self.halt_cooldown_days  = halt_cooldown_days
 
         self._halted = False            # circuit-breaker state (stateful)
+        self._halt_bars = 0             # bars spent in the current halt
+        self._measure_start = 0         # bar index where dd measurement restarts
         self.halt_log: list[str] = []   # history of halt/resume events
 
     # ── Main entry points ────────────────────────────────────────────────────
@@ -131,7 +137,10 @@ class RiskManager:
         if len(equity_curve) < 2:
             return False
 
-        peak = equity_curve.cummax().iloc[-1]
+        # drawdown measured from the last reset point (a cooldown resume
+        # accepts the realized loss and re-arms the breaker from there)
+        window = equity_curve.iloc[self._measure_start:]
+        peak = window.cummax().iloc[-1]
         current = equity_curve.iloc[-1]
         dd = current / peak - 1
 
@@ -143,27 +152,43 @@ class RiskManager:
             if dd < -self.max_dd_halt:
                 msg = f"{date_str}  HALT: drawdown {dd:.1%} exceeded limit {-self.max_dd_halt:.1%}"
                 self._halted = True
+                self._halt_bars = 0
                 self.halt_log.append(msg)
                 logger.warning(msg)
 
             elif not np.isnan(daily_ret) and daily_ret < -self.max_daily_loss:
                 msg = f"{date_str}  HALT: daily loss {daily_ret:.1%} exceeded limit {-self.max_daily_loss:.1%}"
                 self._halted = True
+                self._halt_bars = 0
                 self.halt_log.append(msg)
                 logger.warning(msg)
 
         # ── Check for resume ─────────────────────────────────────────────
-        elif self._halted and dd > -self.dd_resume_threshold:
-            msg = f"{date_str}  RESUME: drawdown recovered to {dd:.1%}"
-            self._halted = False
-            self.halt_log.append(msg)
-            logger.info(msg)
+        else:
+            self._halt_bars += 1
+            if dd > -self.dd_resume_threshold:
+                msg = f"{date_str}  RESUME: drawdown recovered to {dd:.1%}"
+                self._halted = False
+                self.halt_log.append(msg)
+                logger.info(msg)
+            elif self._halt_bars >= self.halt_cooldown_days:
+                # a flat (halted) book cannot recover its drawdown — without
+                # this, a dd-halt would be permanent. Accept the loss, restart
+                # dd measurement at the current level, resume trading.
+                msg = (f"{date_str}  RESUME: cooldown ({self.halt_cooldown_days} bars) "
+                       f"elapsed; dd reset from {dd:.1%}")
+                self._halted = False
+                self._measure_start = len(equity_curve) - 1
+                self.halt_log.append(msg)
+                logger.info(msg)
 
         return self._halted
 
     def reset(self):
         """Reset circuit-breaker state (call before each new backtest run)."""
         self._halted = False
+        self._halt_bars = 0
+        self._measure_start = 0
         self.halt_log.clear()
 
     # ── VaR ─────────────────────────────────────────────────────────────────
