@@ -94,8 +94,9 @@ def main():
     p = argparse.ArgumentParser(description="Monthly IBKR rebalancer for MarketBeatingStrategy")
     p.add_argument("--execute", action="store_true",
                    help="Actually place orders (default: dry-run only)")
-    p.add_argument("--port", type=int, default=7497,
-                   help="TWS/Gateway port (default 7497 paper; 7496 live)")
+    p.add_argument("--port", type=int, default=4002,
+                   help="Gateway/TWS port: 4002 paper Gateway (default), "
+                        "4001 live Gateway, 7497 TWS paper, 7496 TWS live")
     p.add_argument("--capital", type=float, default=None,
                    help="Override NAV in USD (default: full account NAV)")
     p.add_argument("--universe-size", type=int, default=100,
