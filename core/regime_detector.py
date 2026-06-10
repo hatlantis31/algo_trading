@@ -13,7 +13,6 @@ import pandas as pd
 import numpy as np
 from strategies.base_strategy import BaseStrategy
 
-
 def detect_regime(
     df: pd.DataFrame,
     ma_window: int = 200,
