@@ -38,6 +38,8 @@ class HedgeFundStrategy:
         position_cap: float = 0.04,
         risk_lookback: int = 252,
         horizon: int = 21,
+        ic_lookback: int = 12,    # trailing REBALANCE DATES for IC estimation —
+                                  # scale with frequency (12 monthly ≈ 52 weekly)
         opt_shrinkage: float = 0.5,
         factor_set: dict = None,
         sector_map: dict = None,
@@ -63,6 +65,7 @@ class HedgeFundStrategy:
         self.position_cap = position_cap
         self.risk_lookback = risk_lookback
         self.opt_shrinkage = opt_shrinkage
+        self.ic_lookback = ic_lookback
         self.horizon = horizon
         self.factor_set = factor_set or ALL_FACTORS
         self.sector_map = pd.Series(sector_map) if sector_map else None
@@ -101,7 +104,8 @@ class HedgeFundStrategy:
                 alpha = fm.mean(axis=1)
         elif self.alpha_combination == "ic_weighted":
             alpha = ic_weighted_alpha(self._feature_cache, prices, date,
-                                      horizon=self.horizon)
+                                      horizon=self.horizon,
+                                      ic_lookback=self.ic_lookback)
             if alpha.empty:
                 alpha = fm.mean(axis=1)
         else:  # 'equal'
