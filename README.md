@@ -62,20 +62,34 @@ result = PortfolioEngine("ME", cost_bps=10).run(close_panel, hf.weights)
 
 ### Validated on true point-in-time data (2020–2025, notebook 11)
 
-With real SimFin fundamentals (publish-date aligned, survivorship-bias-free,
-window includes the 2022 bear) the fundamentals-only market-neutral sleeve achieves,
-**net of 10 bps costs** at 1.0x gross:
+With real SimFin data (publish-date-aligned fundamentals, survivorship-bias-free
+daily prices incl. delisted names like SIVB, window includes the 2022 bear),
+**net of 10 bps costs** at 1.0x gross, dollar-neutral:
 
-| | result |
-|---|---|
-| Sharpe | **+0.54** (value-spread conditioned; +0.41 unconditioned) |
-| 2022 bear market | **+15.6%** while equities fell ~20% |
-| max drawdown | −9.4% |
-| honest stats | t = 1.1, Deflated Sharpe 0.27 on 51 months — real machinery, not yet statistically significant (no 4-year sample can be; see `core/diagnostics.py`) |
+| configuration | Sharpe | maxDD | CPCV paths > 0 |
+|---|---|---|---|
+| **full pipeline: equal 16-factor blend, monthly** | **+0.50** | −9.7% | **87%** |
+| fundamentals-only, IC-weighted + value-spread conditioned, monthly | +0.54 | −9.4% | 53% |
+| full pipeline, IC-weighted, monthly | +0.09 | −18% | 53% |
+| anything rebalanced weekly | ≤ 0 | up to −41% | — |
+
+What the real data taught us (each one a classic result, reproduced honestly):
+- **Slow beats fast**: weekly rebalancing quadruples costs and chases noise —
+  monthly wins at every configuration (matches `core/diagnostics.py`).
+- **Simple beats clever at high dimension**: equal-weighting 16 factors beats
+  IC-weighting them (16 factors × 12 IC samples = estimation noise; DeMiguel 2009).
+  IC-weighting only wins within the small correlated value-factor set.
+- **Honest stats**: t ≈ 1.1, Deflated Sharpe ≈ 0.27 on ~5 years — a real but
+  not-yet-significant edge; no 5-year sample of a 0.5-Sharpe strategy can be
+  (see `live_feedback_horizon`).
+- Real data also exposed two silent bugs synthetic data never caught: a NaN-collapse
+  in the risk model and a circuit-breaker deadlock (a flat book can never recover
+  its drawdown — fixed with a cooldown).
 
 Run it yourself: `python scripts/validate_full_pipeline.py` — automatically runs the
-full daily pipeline (price factors + point-in-time fundamentals + weekly rebalancing)
-when `data/price_panel_daily.parquet` exists, else the monthly validation.
+full daily pipeline (price factors + point-in-time fundamentals + monthly rebalancing
++ risk overlay + CPCV + DSR) when `data/price_panel_daily.parquet` exists, else the
+monthly fundamentals validation.
 
 ## Better-quality input — fundamental data (notebook 10)
 
