@@ -132,7 +132,10 @@ def full_validation():
     from strategies.hedge_fund_strategy import HedgeFundStrategy
     from backtesting.portfolio_engine import PortfolioEngine
 
+    # non-positive prices (e.g. SIVB recorded at 0 after its 2023 collapse)
+    # would create infinite returns — treat as missing
     prices = pd.read_parquet(PRICE_PATH).astype(float)
+    prices = prices.where(prices > 0)
     volume = pd.read_parquet(VOLUME_PATH).astype(float)
     ts = FundamentalsTimeSeries(FUND_PATH)
 

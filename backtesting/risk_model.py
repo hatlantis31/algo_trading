@@ -24,6 +24,9 @@ class RiskModel:
 
     def fit(self, prices: pd.DataFrame) -> "RiskModel":
         """Estimate shrunk covariance and market betas from a price panel."""
+        # non-positive prices (data errors, collapsed names like SIVB) → NaN,
+        # else pct_change produces infinite returns that break the estimator
+        prices = prices.where(prices > 0)
         rets = prices.pct_change().iloc[-self.lookback:].dropna(how="all")
         # Real panels have NaN from listings/delistings — dropping whole rows
         # would collapse the frame. Keep tickers that are still trading (data in
