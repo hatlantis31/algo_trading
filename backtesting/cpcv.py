@@ -89,19 +89,26 @@ class CombinatorialPurgedCV:
                     train_idx.append(i)
             yield np.array(sorted(train_idx)), np.array(sorted(test_idx))
 
-    def evaluate(self, returns: pd.Series) -> CPCVResult:
+    def evaluate(self, returns: pd.Series, periods_per_year: int = 252,
+                 min_obs: int = None) -> CPCVResult:
         """
-        Given a strategy's daily return series, compute the Sharpe on each CPCV
+        Given a strategy's return series, compute the Sharpe on each CPCV
         test path. (Strategy is assumed already generated; this measures how
         consistent its performance is across different held-out periods.)
+
+        periods_per_year : annualization base — 252 for daily, 12 for monthly.
+        min_obs          : minimum test observations per path (default: 20 for
+                           daily, 8 for coarser frequencies).
         """
+        if min_obs is None:
+            min_obs = 20 if periods_per_year >= 252 else 8
         result = CPCVResult(n_splits=self.n_splits, n_test_groups=self.n_test_groups)
         idx = returns.index
         for _, test_idx in self.split(idx):
             test_rets = returns.iloc[test_idx].dropna()
-            if len(test_rets) < 20 or test_rets.std() == 0:
+            if len(test_rets) < min_obs or test_rets.std() == 0:
                 continue
-            sharpe = test_rets.mean() / test_rets.std() * np.sqrt(252)
+            sharpe = test_rets.mean() / test_rets.std() * np.sqrt(periods_per_year)
             result.path_sharpes.append(float(sharpe))
             result.path_returns.append(test_rets)
         return result
