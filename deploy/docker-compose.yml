@@ -1,0 +1,37 @@
+# Headless IB Gateway for the cloud VM.
+#
+# Uses the well-maintained ib-gateway-docker image (gnzsnz), which bundles
+# IB Gateway + IBC (IBController). IBC handles:
+#   - automatic headless login (no GUI / VNC needed for paper)
+#   - the MANDATORY daily Gateway restart (IBKR forces a restart ~once/day)
+#   - auto-reconnect after the restart
+#
+# The strategy script connects to the API port exposed here:
+#   paper -> 4002      live -> 4001
+#
+# Start:   docker compose up -d
+# Logs:    docker compose logs -f ib-gateway
+# Stop:    docker compose down
+#
+# SECURITY: this binds the API port to 127.0.0.1 only (localhost). The
+# rebalance script must run ON THE SAME VM. Never expose 4001/4002 to the
+# public internet — anyone reaching it can trade your account.
+
+services:
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:stable
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # These map to the ports the API listens on inside the container
+      - TWS_USERID=${TWS_USERID}
+      - TWS_PASSWORD=${TWS_PASSWORD}
+      - TRADING_MODE=${TRADING_MODE}
+      - READ_ONLY_API=${READ_ONLY_API}
+      - TZ=${TZ}
+    ports:
+      # bind to localhost ONLY — the script runs on this same VM
+      - "127.0.0.1:4001:4003"   # live  API  (internal 4003 -> host 4001)
+      - "127.0.0.1:4002:4004"   # paper API  (internal 4004 -> host 4002)
+    volumes:
+      - ./gateway-settings:/root/Jts

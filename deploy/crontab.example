@@ -1,0 +1,12 @@
+# Monthly rebalance schedule (install with: crontab deploy/crontab.example)
+# ──────────────────────────────────────────────────────────────────────────
+# Runs the rebalance on the last weekday of each month at 3:30 PM ET.
+#
+# The 28-31 day range + the weekday guard inside run_monthly.sh ensures it
+# only fires on the actual last TRADING day, not just any month-end date.
+#
+# Times are in the VM's local timezone — set the VM to America/New_York so
+# "15:30" means 3:30 PM ET (matches the NYSE MOC cut-off of 3:45 PM ET).
+
+# minute hour day month weekday  command
+  30     15   28-31 *    *       /home/ubuntu/algo_trading/deploy/run_monthly.sh >> /home/ubuntu/algo_trading/data/cron.log 2>&1
